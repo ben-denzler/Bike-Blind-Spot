@@ -3,11 +3,15 @@
 
 // Serial.print("GCD is: "); Serial.print(GCD); Serial.print('\n');   // DEBUGGING
 
-#define LEFT_ECHO_PIN 11
-#define LEFT_TRIG_PIN 12
+#define LEFT_TRIG_PIN  12
+#define LEFT_ECHO_PIN  11
+#define RIGHT_TRIG_PIN 10 
+#define RIGHT_ECHO_PIN 9
 
 SR04 LeftSensor = SR04(LEFT_ECHO_PIN, LEFT_TRIG_PIN);
+SR04 RightSensor = SR04(RIGHT_ECHO_PIN, RIGHT_TRIG_PIN);
 long LeftSensorDistance;
+long RightSensorDistance;
 
 // Computes GCD of two numbers
 unsigned long gcd(unsigned long a, unsigned long b) {
@@ -28,8 +32,8 @@ typedef struct task {
   int (*TickFct)(int);          // Address of tick function
 } task;
 
-static task task1, task2;
-task* tasks[] = { &task1, &task2 };
+static task task1, task2, task3;
+task* tasks[] = { &task1, &task2, &task3 };
 const unsigned char numTasks = sizeof(tasks) / sizeof(tasks[0]);
 const char startState = 0;    // Refers to first state enum
 unsigned long GCD = 0;        // For timer period
@@ -43,8 +47,17 @@ enum LS_States { LS_SMStart };
 int TickFct_LeftSensor(int state) {
   LeftSensorDistance = LeftSensor.Distance();
   Serial.print(LeftSensorDistance);
-  Serial.print("cm\n");
+  Serial.print("cm (Left)\n");
   return LS_SMStart;
+}
+
+// Task 3 (Outputs distance from right ultrasonic sensor)
+enum RS_States { RS_SMStart };
+int TickFct_RightSensor(int state) {
+  RightSensorDistance = RightSensor.Distance();
+  Serial.print(RightSensorDistance);
+  Serial.print("cm (Right)\n");
+  return RS_SMStart;
 }
 
 void setup() {
@@ -59,9 +72,16 @@ void setup() {
 
   // Task 2 (Outputs distance from left ultrasonic sensor)
   tasks[j]->state = startState;
-  tasks[j]->period = 1000000;
+  tasks[j]->period = 500000;
   tasks[j]->elapsedTime = tasks[j]->period;
   tasks[j]->TickFct = &TickFct_LeftSensor;
+  ++j;
+
+  // Task 3 (Outputs distance from right ultrasonic sensor)
+  tasks[j]->state = startState;
+  tasks[j]->period = 500000;
+  tasks[j]->elapsedTime = tasks[j]->period;
+  tasks[j]->TickFct = &TickFct_RightSensor;
   ++j;
 
   // Find GCD for timer's period
