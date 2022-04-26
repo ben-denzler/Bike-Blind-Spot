@@ -7,7 +7,14 @@
 #define LEFT_ECHO_PIN  11
 #define RIGHT_TRIG_PIN 10 
 #define RIGHT_ECHO_PIN 9
+#define RED_LEFT       8
+#define GREEN_LEFT     7
+#define BLUE_LEFT      6
+#define RED_RIGHT      5
+#define GREEN_RIGHT    4
+#define BLUE_RIGHT     3
 
+bool TurnSignalEnabled = true;
 SR04 LeftSensor = SR04(LEFT_ECHO_PIN, LEFT_TRIG_PIN);
 SR04 RightSensor = SR04(RIGHT_ECHO_PIN, RIGHT_TRIG_PIN);
 long LeftSensorDistance;
@@ -32,11 +39,25 @@ typedef struct task {
   int (*TickFct)(int);          // Address of tick function
 } task;
 
-static task task1, task2, task3;
-task* tasks[] = { &task1, &task2, &task3 };
+static task task1, task2, task3, task4;
+task* tasks[] = { &task1, &task2, &task3, &task4 };
 const unsigned char numTasks = sizeof(tasks) / sizeof(tasks[0]);
 const char startState = 0;    // Refers to first state enum
 unsigned long GCD = 0;        // For timer period
+
+// Sets color of left LED
+void setColorLeft(unsigned int red, unsigned int green, unsigned int blue) {
+  analogWrite(RED_LEFT, red);
+  analogWrite(GREEN_LEFT, green);
+  analogWrite(BLUE_LEFT, blue);
+}
+
+// Sets color of right LED
+void setColorRight(unsigned int red, unsigned int green, unsigned int blue) {
+  analogWrite(RED_RIGHT, red);
+  analogWrite(GREEN_RIGHT, green);
+  analogWrite(BLUE_RIGHT, blue);
+}
 
 // Task 1 (Blinks the onboard LED)
 enum BL_States { BL_SMStart, BL_On, BL_Off };
@@ -45,7 +66,10 @@ int TickFct_BlinkLED(int state);
 // Task 2 (Outputs distance from left ultrasonic sensor)
 enum LS_States { LS_SMStart };
 int TickFct_LeftSensor(int state) {
-  LeftSensorDistance = LeftSensor.Distance();
+  long sensorDist = LeftSensor.Distance();
+  if (sensorDist <= 400) {
+    LeftSensorDistance = sensorDist;
+  }
   Serial.print(LeftSensorDistance);
   Serial.print("cm (Left)\n");
   return LS_SMStart;
@@ -54,10 +78,27 @@ int TickFct_LeftSensor(int state) {
 // Task 3 (Outputs distance from right ultrasonic sensor)
 enum RS_States { RS_SMStart };
 int TickFct_RightSensor(int state) {
-  RightSensorDistance = RightSensor.Distance();
+  long sensorDist = RightSensor.Distance();
+  if (sensorDist <= 400) {
+    RightSensorDistance = sensorDist;
+  }
   Serial.print(RightSensorDistance);
   Serial.print("cm (Right)\n");
   return RS_SMStart;
+}
+
+// Task 4 (Updates speakers and LEDs based on sensor distance)
+enum UP_States { UP_SMStart };
+int TickFct_UpdatePeripherals(int state) {
+  if (LeftSensorDistance >= 200) setColorLeft(0, 255, 0);           // Green
+  else if (LeftSensorDistance >= 100) setColorLeft(0, 0, 255);      // Blue
+  else setColorLeft(255, 0, 0);                                     // Red
+
+  if (RightSensorDistance >= 200) setColorRight(0, 255, 0);         // Green
+  else if (RightSensorDistance >= 100) setColorRight(0, 0, 255);    // Blue
+  else setColorRight(255, 0, 0);                                    // Red
+
+  return UP_SMStart;
 }
 
 void setup() {
@@ -84,12 +125,25 @@ void setup() {
   tasks[j]->TickFct = &TickFct_RightSensor;
   ++j;
 
+ // Task 4 (Updates speakers and LEDs based on sensor distance)
+  tasks[j]->state = startState;
+  tasks[j]->period = 500000;
+  tasks[j]->elapsedTime = tasks[j]->period;
+  tasks[j]->TickFct = &TickFct_UpdatePeripherals;
+  ++j;
+
   // Find GCD for timer's period
   GCD = tasks[0]->period;
   for (unsigned char i = 1; i < numTasks; ++i) {
     GCD = gcd(GCD, tasks[i]->period); 
   }
 
+  pinMode(RED_LEFT, OUTPUT);          // Left RGB red
+  pinMode(GREEN_LEFT, OUTPUT);        // Left RGB green
+  pinMode(BLUE_LEFT, OUTPUT);         // Left RGB blue
+  pinMode(RED_RIGHT, OUTPUT);         // Right RGB red
+  pinMode(GREEN_RIGHT, OUTPUT);       // Right RGB green
+  pinMode(BLUE_RIGHT, OUTPUT);        // Right RGB blue
   pinMode(LED_BUILTIN, OUTPUT);       // Testing
   Serial.begin(9600);                 // Baud rate is 9600 (serial output)
   Timer1.initialize(GCD);             // GCD is in microseconds
