@@ -13,6 +13,7 @@
 #define RED_RIGHT      5
 #define GREEN_RIGHT    4
 #define BLUE_RIGHT     3
+#define BUZZER         2
 
 bool TurnSignalEnabled = true;
 SR04 LeftSensor = SR04(LEFT_ECHO_PIN, LEFT_TRIG_PIN);
@@ -39,8 +40,8 @@ typedef struct task {
   int (*TickFct)(int);          // Address of tick function
 } task;
 
-static task task1, task2, task3, task4;
-task* tasks[] = { &task1, &task2, &task3, &task4 };
+static task task1, task2, task3, task4, task5;
+task* tasks[] = { &task1, &task2, &task3, &task4, &task5 };
 const unsigned char numTasks = sizeof(tasks) / sizeof(tasks[0]);
 const char startState = 0;    // Refers to first state enum
 unsigned long GCD = 0;        // For timer period
@@ -88,8 +89,8 @@ int TickFct_RightSensor(int state) {
 }
 
 // Task 4 (Updates speakers and LEDs based on sensor distance)
-enum UP_States { UP_SMStart };
-int TickFct_UpdatePeripherals(int state) {
+enum UL_States { UL_SMStart };
+int TickFct_UpdateLEDs(int state) {
   if (LeftSensorDistance >= 200) setColorLeft(0, 255, 0);           // Green
   else if (LeftSensorDistance >= 100) setColorLeft(0, 0, 255);      // Blue
   else setColorLeft(255, 0, 0);                                     // Red
@@ -98,7 +99,50 @@ int TickFct_UpdatePeripherals(int state) {
   else if (RightSensorDistance >= 100) setColorRight(0, 0, 255);    // Blue
   else setColorRight(255, 0, 0);                                    // Red
 
-  return UP_SMStart;
+  return UL_SMStart;
+}
+
+// Task 5 (Outputs frequency on speaker)
+enum SS_States { SS_SMStart, SS_Wait, SS_MakeSound };
+int TickFct_SoundSpeaker(int state) {
+  switch (state) {  // State transitions
+    case SS_SMStart:
+      state = SS_Wait;
+      break;
+
+    case SS_Wait:
+      if (LeftSensorDistance < 100 || RightSensorDistance < 100) {
+        state = SS_MakeSound;
+      } else {
+        state = SS_Wait;
+      }
+      break;
+    
+    case SS_MakeSound:
+      if (!(LeftSensorDistance < 100 || RightSensorDistance < 100)) {
+        state = SS_Wait;
+      } else {
+        state = SS_MakeSound;
+      }
+      break;
+
+    default:
+      state = SS_SMStart;
+      break;
+  }
+  switch (state) {  // State actions
+    case SS_Wait:
+      noTone(BUZZER);
+      break;
+
+    case SS_MakeSound:
+      tone(BUZZER, 2000);
+      break;
+
+    default:
+      break;
+  }
+  return state;
 }
 
 void setup() {
@@ -129,7 +173,14 @@ void setup() {
   tasks[j]->state = startState;
   tasks[j]->period = 500000;
   tasks[j]->elapsedTime = tasks[j]->period;
-  tasks[j]->TickFct = &TickFct_UpdatePeripherals;
+  tasks[j]->TickFct = &TickFct_UpdateLEDs;
+  ++j;
+
+ // Task 5 (Outputs frequency on speaker)
+  tasks[j]->state = startState;
+  tasks[j]->period = 500000;
+  tasks[j]->elapsedTime = tasks[j]->period;
+  tasks[j]->TickFct = &TickFct_SoundSpeaker;
   ++j;
 
   // Find GCD for timer's period
@@ -144,6 +195,7 @@ void setup() {
   pinMode(RED_RIGHT, OUTPUT);         // Right RGB red
   pinMode(GREEN_RIGHT, OUTPUT);       // Right RGB green
   pinMode(BLUE_RIGHT, OUTPUT);        // Right RGB blue
+  pinMode(BUZZER, OUTPUT);            // Buzzer pin
   pinMode(LED_BUILTIN, OUTPUT);       // Testing
   Serial.begin(9600);                 // Baud rate is 9600 (serial output)
   Timer1.initialize(GCD);             // GCD is in microseconds
