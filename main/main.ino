@@ -62,7 +62,7 @@ void setColorRight(unsigned int red, unsigned int green, unsigned int blue) {
 }
 
 // Task 1 (Checks if a turn signal is active)
-enum US_States { US_SMStart, US_Wait, US_Update };
+enum US_States { US_SMStart };
 int TickFct_UpdateSignals(int state) {
   LeftTurnEnabled = digitalRead(LEFT_TURN_SIGNAL);
   RightTurnEnabled = digitalRead(RIGHT_TURN_SIGNAL);
