@@ -1,21 +1,22 @@
 #include <TimerOne.h>
 #include <SR04.h>
 
-// Serial.print("GCD is: "); Serial.print(GCD); Serial.print('\n');   // DEBUGGING
+#define LEFT_TURN_SIGNAL  26
+#define RIGHT_TURN_SIGNAL 45
+#define LEFT_TRIG_PIN     12
+#define LEFT_ECHO_PIN     11
+#define RIGHT_TRIG_PIN    10 
+#define RIGHT_ECHO_PIN    9
+#define RED_LEFT          8
+#define GREEN_LEFT        7
+#define BLUE_LEFT         6
+#define RED_RIGHT         5
+#define GREEN_RIGHT       4
+#define BLUE_RIGHT        3
+#define BUZZER            2
 
-#define LEFT_TRIG_PIN  12
-#define LEFT_ECHO_PIN  11
-#define RIGHT_TRIG_PIN 10 
-#define RIGHT_ECHO_PIN 9
-#define RED_LEFT       8
-#define GREEN_LEFT     7
-#define BLUE_LEFT      6
-#define RED_RIGHT      5
-#define GREEN_RIGHT    4
-#define BLUE_RIGHT     3
-#define BUZZER         2
-
-bool TurnSignalEnabled = true;
+int LeftTurnEnabled;
+int RightTurnEnabled;
 SR04 LeftSensor = SR04(LEFT_ECHO_PIN, LEFT_TRIG_PIN);
 SR04 RightSensor = SR04(RIGHT_ECHO_PIN, RIGHT_TRIG_PIN);
 long LeftSensorDistance;
@@ -60,9 +61,13 @@ void setColorRight(unsigned int red, unsigned int green, unsigned int blue) {
   analogWrite(BLUE_RIGHT, blue);
 }
 
-// Task 1 (Blinks the onboard LED)
-enum BL_States { BL_SMStart, BL_On, BL_Off };
-int TickFct_BlinkLED(int state);
+// Task 1 (Checks if a turn signal is active)
+enum US_States { US_SMStart, US_Wait, US_Update };
+int TickFct_UpdateSignals(int state) {
+  LeftTurnEnabled = digitalRead(LEFT_TURN_SIGNAL);
+  RightTurnEnabled = digitalRead(RIGHT_TURN_SIGNAL);
+  return state;
+}
 
 // Task 2 (Outputs distance from left ultrasonic sensor)
 enum LS_States { LS_SMStart };
@@ -71,8 +76,6 @@ int TickFct_LeftSensor(int state) {
   if (sensorDist <= 400) {
     LeftSensorDistance = sensorDist;
   }
-  Serial.print(LeftSensorDistance);
-  Serial.print("cm (Left)\n");
   return LS_SMStart;
 }
 
@@ -83,21 +86,26 @@ int TickFct_RightSensor(int state) {
   if (sensorDist <= 400) {
     RightSensorDistance = sensorDist;
   }
-  Serial.print(RightSensorDistance);
-  Serial.print("cm (Right)\n");
   return RS_SMStart;
 }
 
 // Task 4 (Updates speakers and LEDs based on sensor distance)
 enum UL_States { UL_SMStart };
 int TickFct_UpdateLEDs(int state) {
-  if (LeftSensorDistance >= 200) setColorLeft(0, 255, 0);           // Green
-  else if (LeftSensorDistance >= 100) setColorLeft(0, 0, 255);      // Blue
-  else setColorLeft(255, 0, 0);                                     // Red
+  
+  if (RightTurnEnabled) {
+    if (RightSensorDistance >= 200) setColorRight(0, 255, 0);         // Green
+    else if (RightSensorDistance >= 100) setColorRight(0, 0, 255);    // Blue
+    else setColorRight(255, 0, 0);                                    // Red
+  }
+  else setColorRight(0, 0, 0);
 
-  if (RightSensorDistance >= 200) setColorRight(0, 255, 0);         // Green
-  else if (RightSensorDistance >= 100) setColorRight(0, 0, 255);    // Blue
-  else setColorRight(255, 0, 0);                                    // Red
+  if (LeftTurnEnabled) {
+    if (LeftSensorDistance >= 200) setColorLeft(0, 255, 0);           // Green
+    else if (LeftSensorDistance >= 100) setColorLeft(0, 0, 255);      // Blue
+    else setColorLeft(255, 0, 0);                                     // Red
+  } 
+  else setColorLeft(0, 0, 0);
 
   return UL_SMStart;
 }
@@ -111,7 +119,7 @@ int TickFct_SoundSpeaker(int state) {
       break;
 
     case SS_Wait:
-      if (LeftSensorDistance < 100 || RightSensorDistance < 100) {
+      if ((LeftSensorDistance < 100 && LeftTurnEnabled) || (RightSensorDistance < 100 && RightTurnEnabled)) {
         state = SS_MakeSound;
       } else {
         state = SS_Wait;
@@ -119,7 +127,7 @@ int TickFct_SoundSpeaker(int state) {
       break;
     
     case SS_MakeSound:
-      if (!(LeftSensorDistance < 100 || RightSensorDistance < 100)) {
+      if (!((LeftSensorDistance < 100 && LeftTurnEnabled) || (RightSensorDistance < 100 && RightTurnEnabled))) {
         state = SS_Wait;
       } else {
         state = SS_MakeSound;
@@ -148,11 +156,11 @@ int TickFct_SoundSpeaker(int state) {
 void setup() {
   unsigned char j = 0;
 
-  // Task 1 (Blinks the onboard LED)
+  // Task 1 (Checks if a turn signal is active)
   tasks[j]->state = startState;
-  tasks[j]->period = 1000000;
+  tasks[j]->period = 100000;
   tasks[j]->elapsedTime = tasks[j]->period;
-  tasks[j]->TickFct = &TickFct_BlinkLED;
+  tasks[j]->TickFct = &TickFct_UpdateSignals;
   ++j;
 
   // Task 2 (Outputs distance from left ultrasonic sensor)
@@ -169,7 +177,7 @@ void setup() {
   tasks[j]->TickFct = &TickFct_RightSensor;
   ++j;
 
- // Task 4 (Updates speakers and LEDs based on sensor distance)
+ // Task 4 (Updates LEDs based on sensor distance)
   tasks[j]->state = startState;
   tasks[j]->period = 500000;
   tasks[j]->elapsedTime = tasks[j]->period;
@@ -189,6 +197,8 @@ void setup() {
     GCD = gcd(GCD, tasks[i]->period); 
   }
 
+  pinMode(LEFT_TURN_SIGNAL, INPUT);   // Input from Ashley's board
+  pinMode(RIGHT_TURN_SIGNAL, INPUT);  // Input from Ashley's board
   pinMode(RED_LEFT, OUTPUT);          // Left RGB red
   pinMode(GREEN_LEFT, OUTPUT);        // Left RGB green
   pinMode(BLUE_LEFT, OUTPUT);         // Left RGB blue
@@ -212,41 +222,6 @@ void loop() {
   }
   while (!timerFlag);
   timerFlag = 0;
-}
-
-int TickFct_BlinkLED(int state) {
-  switch (state) {
-    case BL_SMStart:
-      state = BL_On;
-      break;
-
-    case BL_On:
-      state = BL_Off;
-      break;
-
-    case BL_Off:
-      state = BL_On;
-      break;
-
-    default:
-      break;
-  }
-  switch(state) {
-    case BL_SMStart:
-      break;
-    
-    case BL_On:
-      digitalWrite(LED_BUILTIN, HIGH);
-      break;
-
-    case BL_Off:
-      digitalWrite(LED_BUILTIN, LOW);
-      break;
-
-    default:
-      break;
-  }
-  return state;
 }
 
 /* WORKS CITED
